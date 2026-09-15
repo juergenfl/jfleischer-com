@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+.git
+.gstack
+.claude
+*.local
+.DS_Store
+*.tsbuildinfo
+Dockerfile
+.dockerignore
+DEPLOY.md
+README.txt
