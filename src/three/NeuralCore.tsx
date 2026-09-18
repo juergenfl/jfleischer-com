@@ -4,8 +4,28 @@ import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { sceneState } from './sceneState'
 
+// A phone in portrait sees barely +-1.06 world units across at this camera, so
+// the authored landscape composition falls almost entirely outside the frustum.
+// Both states therefore get a portrait preset, picked from the live aspect.
+const CAMERA_Z = 6
+const FOV = 42
+
+// The scene switches composition on exactly the query Tailwind's `portrait:`
+// variant uses, so the blob can never end up over a headline that CSS has
+// decided to leave centred.
+const PORTRAIT_QUERY = '(orientation: portrait)'
+
 const COUNT = 9000
-const CENTER = new THREE.Vector3(1.9, 0.1, 0)
+
+// Blob to the right of the headline (landscape) vs. above it (portrait)
+const CENTER_WIDE = new THREE.Vector3(1.9, 0.1, 0)
+const CENTER_PORTRAIT = new THREE.Vector3(0, 1.15, 0)
+
+// Half-extent of the blob's visible tails in authored space; the core state is
+// scaled to fit the frame it is shown in, keeping CORE_MARGIN of the half-width
+// as dark surround so the bloom haze has somewhere to fall off.
+const CORE_EXTENT = 1.55
+const CORE_MARGIN = 0.28
 
 // Three overlapping lobes — a blob with structure reads more alive than one gaussian.
 const LOBES: [number, number, number, number][] = [
@@ -14,15 +34,26 @@ const LOBES: [number, number, number, number][] = [
   [0.05, -0.45, -0.35, 0.75],
 ]
 
-// Network state: one node per directory category, laid out like the 3x2 card grid
-// (01 02 03 / 04 05 06) so hovering a card lights the cluster in the same place.
-const NODES: [number, number, number][] = [
+// Network state: one node per directory category, laid out like the card grid
+// so hovering a card lights the cluster in the same place. Wide frames get the
+// 3x2 grid (01 02 03 / 04 05 06); a portrait frame has no horizontal room for
+// that, so it uses 2x3 and spends the height it does have instead.
+const NODES_WIDE: [number, number, number][] = [
   [-2.45, 1.25, -1.2],
   [0, 1.5, -1.9],
   [2.45, 1.25, -1.4],
   [-2.25, -1.35, -1.6],
   [0, -1.6, -1.0],
   [2.25, -1.35, -2.1],
+]
+
+const NODES_PORTRAIT: [number, number, number][] = [
+  [-0.5, 1.55, -1.3],
+  [0.5, 1.55, -1.7],
+  [-0.5, 0.0, -1.5],
+  [0.5, 0.0, -1.1],
+  [-0.5, -1.55, -1.9],
+  [0.5, -1.55, -1.4],
 ]
 
 // Grid neighbours plus two diagonals through the middle
@@ -134,6 +165,7 @@ vec3 place(vec3 pos, float angle, float morph, vec3 center) {
 
 const vertexShader = /* glsl */ `
 attribute vec3 aNet;
+attribute vec3 aNetPortrait;
 attribute float aCluster;
 attribute float aSeed;
 
@@ -144,6 +176,8 @@ uniform vec3 uCenter;
 uniform vec3 uPointer;
 uniform float uRepulsion;
 uniform float uSize;
+uniform float uCoreScale;
+uniform float uPortrait;
 
 varying float vCluster;
 varying float vSeed;
@@ -153,15 +187,23 @@ ${simplex}
 ${placement}
 
 void main() {
-  vec3 pos = mix(position, aNet, uMorph);
+  vCluster = aCluster;
+  vSeed = aSeed;
+
+  vec3 pos = mix(position, mix(aNet, aNetPortrait, uPortrait), uMorph);
 
   // Organic drift along a slowly translating curl field — strong in the core
-  // state, calm once the cloud has settled into the graph
+  // state, calm once the cloud has settled into the graph. Sampled in authored
+  // space so the turbulence keeps its character at every fit scale.
   float amp = 0.26 * (1.0 - uMorph) + 0.05;
   pos += curl(pos * 0.8 + vec3(0.0, uTime * 0.12, 0.0)) * amp;
 
   // Breathing pulse, phase-shifted per particle
   pos *= 1.0 + 0.03 * (1.0 - uMorph) * sin(uTime * 1.4 + aSeed * 6.2831);
+
+  // Shrink the loose core to whatever the frame can actually show; the network
+  // node layouts are authored to fit already, so they are left alone.
+  pos *= mix(uCoreScale, 1.0, uMorph);
 
   pos = place(pos, uAngle, uMorph, uCenter);
 
@@ -172,10 +214,10 @@ void main() {
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = uSize * (0.7 + 0.6 * aSeed) * (6.0 / max(1.0, -mv.z));
+  // Scaled with the cloud, not just positioned by it: a dot that keeps its size
+  // while the cloud shrinks reads as grain instead of dust.
+  gl_PointSize = uSize * mix(uCoreScale, 1.0, uMorph) * (0.7 + 0.6 * aSeed) * (6.0 / max(1.0, -mv.z));
 
-  vCluster = aCluster;
-  vSeed = aSeed;
   vDepth = -mv.z;
 }
 `
@@ -188,6 +230,7 @@ uniform vec3 uColorB;
 uniform float uOpacity;
 uniform float uMorph;
 uniform float uHovered;  // -1 = none, else cluster index 0..5
+uniform float uPortrait;
 
 varying float vCluster;
 varying float vSeed;
@@ -210,23 +253,31 @@ void main() {
   // Depth fade keeps the far side of the cloud atmospheric
   float depthFade = smoothstep(11.0, 4.0, vDepth);
 
-  // The graph sits behind text — it dims globally so it stays atmosphere
-  float stateFade = 1.0 - 0.45 * uMorph;
+  // The graph sits behind text — it dims globally so it stays atmosphere.
+  // Portrait cards are full-bleed, so it has to give way further there.
+  float stateFade = 1.0 - (0.45 + 0.28 * uPortrait) * uMorph;
+
+  // A cloud that spans a narrow frame edge to edge has no darkness to read
+  // against, so additive blending saturates its core into a flat green wash.
+  // Pulling the whole thing back keeps the falloff visible.
+  float frameFade = 1.0 - 0.38 * uPortrait;
 
   gl_FragColor = vec4(
     color * highlight,
-    alpha * uOpacity * dim * stateFade * (0.45 + 0.55 * depthFade)
+    alpha * uOpacity * dim * stateFade * frameFade * (0.45 + 0.55 * depthFade)
   );
 }
 `
 
 const bondVertexShader = /* glsl */ `
+attribute vec3 aPortrait; // same edge, portrait node positions
 attribute float aT;    // 0 at edge start, 1 at edge end
 attribute float aSeed; // per-edge random phase
 
 uniform float uAngle;
 uniform float uMorph;
 uniform vec3 uCenter;
+uniform float uPortrait;
 
 varying float vT;
 varying float vSeed;
@@ -236,7 +287,7 @@ ${placement}
 void main() {
   vT = aT;
   vSeed = aSeed;
-  vec3 pos = place(position, uAngle, uMorph, uCenter);
+  vec3 pos = place(mix(position, aPortrait, uPortrait), uAngle, uMorph, uCenter);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 }
 `
@@ -247,6 +298,7 @@ precision highp float;
 uniform float uTime;
 uniform float uOpacity; // already multiplied by uMorph — bonds only exist in the graph
 uniform vec3 uColor;
+uniform float uPortrait;
 
 varying float vT;
 varying float vSeed;
@@ -259,16 +311,23 @@ void main() {
   float pulsePos = fract(uTime * 0.22 + vSeed);
   float pulse = exp(-pow((vT - pulsePos) * 9.0, 2.0)) * 1.6;
 
-  float alpha = (base + pulse) * uOpacity;
+  // In portrait the nodes sit close together, so a bond crosses far more of the
+  // readable page per unit length — it has to stay a hint, not a streak.
+  float alpha = (base + pulse) * uOpacity * (1.0 - 0.78 * uPortrait);
   if (alpha < 0.01) discard;
   gl_FragColor = vec4(uColor * (1.0 + pulse), alpha);
 }
 `
 
+const isCoarsePointer = () => window.matchMedia('(pointer: coarse)').matches
+
 function Scene() {
   const coreRef = useRef<THREE.ShaderMaterial>(null)
   const bondRef = useRef<THREE.ShaderMaterial>(null)
   const { gl, camera } = useThree()
+
+  const coarse = useMemo(isCoarsePointer, [])
+  const slow = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
 
   const geometry = useMemo(() => {
     // Deterministic PRNG so the cloud looks the same on every load
@@ -284,6 +343,7 @@ function Scene() {
 
     const core = new Float32Array(COUNT * 3)
     const net = new Float32Array(COUNT * 3)
+    const netPortrait = new Float32Array(COUNT * 3)
     const clusters = new Float32Array(COUNT)
     const seeds = new Float32Array(COUNT)
 
@@ -294,11 +354,22 @@ function Scene() {
       core[i * 3 + 1] = lobe[1] + gauss() * sigma * 0.5
       core[i * 3 + 2] = lobe[2] + gauss() * sigma * 0.55
 
-      const cluster = i % NODES.length
-      const node = NODES[cluster]
-      net[i * 3] = node[0] + gauss() * 0.28
-      net[i * 3 + 1] = node[1] + gauss() * 0.28
-      net[i * 3 + 2] = node[2] + gauss() * 0.28
+      // Both layouts share the particle's offset within its cluster, so rotating
+      // the device moves the node without reshuffling who belongs to it.
+      const cluster = i % NODES_WIDE.length
+      const ox = gauss() * 0.28
+      const oy = gauss() * 0.28
+      const oz = gauss() * 0.28
+
+      const wide = NODES_WIDE[cluster]
+      net[i * 3] = wide[0] + ox
+      net[i * 3 + 1] = wide[1] + oy
+      net[i * 3 + 2] = wide[2] + oz
+
+      const portrait = NODES_PORTRAIT[cluster]
+      netPortrait[i * 3] = portrait[0] + ox
+      netPortrait[i * 3 + 1] = portrait[1] + oy
+      netPortrait[i * 3 + 2] = portrait[2] + oz
 
       clusters[i] = cluster
       seeds[i] = rand()
@@ -307,6 +378,7 @@ function Scene() {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(core, 3))
     geo.setAttribute('aNet', new THREE.BufferAttribute(net, 3))
+    geo.setAttribute('aNetPortrait', new THREE.BufferAttribute(netPortrait, 3))
     geo.setAttribute('aCluster', new THREE.BufferAttribute(clusters, 1))
     geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1))
     geo.computeBoundingSphere()
@@ -315,12 +387,15 @@ function Scene() {
 
   const bondGeometry = useMemo(() => {
     const positions = new Float32Array(EDGES.length * 2 * 3)
+    const portrait = new Float32Array(EDGES.length * 2 * 3)
     const t = new Float32Array(EDGES.length * 2)
     const seeds = new Float32Array(EDGES.length * 2)
 
     EDGES.forEach(([a, b], i) => {
-      positions.set(NODES[a], i * 6)
-      positions.set(NODES[b], i * 6 + 3)
+      positions.set(NODES_WIDE[a], i * 6)
+      positions.set(NODES_WIDE[b], i * 6 + 3)
+      portrait.set(NODES_PORTRAIT[a], i * 6)
+      portrait.set(NODES_PORTRAIT[b], i * 6 + 3)
       t[i * 2] = 0
       t[i * 2 + 1] = 1
       // Golden-ratio stagger so no two pulses travel in lockstep
@@ -331,6 +406,7 @@ function Scene() {
 
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('aPortrait', new THREE.BufferAttribute(portrait, 3))
     geo.setAttribute('aT', new THREE.BufferAttribute(t, 1))
     geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1))
     return geo
@@ -350,9 +426,11 @@ function Scene() {
     uAngle: { value: 0 },
     uMorph: { value: 0 },
     uHovered: { value: -1 },
-    uCenter: { value: CENTER.clone() },
+    uCenter: { value: CENTER_WIDE.clone() },
     uPointer: { value: new THREE.Vector3(999, 999, 0) },
     uRepulsion: { value: 0 },
+    uCoreScale: { value: 1 },
+    uPortrait: { value: 0 },
   })
 
   const pointUniforms = useMemo(
@@ -374,11 +452,35 @@ function Scene() {
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
   const ndc = useMemo(() => new THREE.Vector2(), [])
-  const coarse = useMemo(() => window.matchMedia('(pointer: coarse)').matches, [])
-  const slow = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
+
+  // Recomputed from the live camera aspect rather than a resize listener, so the
+  // composition can never disagree with the frustum it is being drawn into.
+  const layout = useMemo(
+    () => ({ aspect: -1, portrait: 0, coreScale: 1, center: CENTER_WIDE.clone() }),
+    [],
+  )
 
   useFrame((_state, delta) => {
     if (!coreRef.current || !bondRef.current) return
+
+    const aspect = (camera as THREE.PerspectiveCamera).aspect
+    if (Math.abs(aspect - layout.aspect) > 1e-4) {
+      layout.aspect = aspect
+      // Visible half-width on the z=0 plane, where the composition is authored
+      const halfWidth = Math.tan((FOV * Math.PI) / 360) * CAMERA_Z * aspect
+      layout.coreScale = Math.min(1, (halfWidth * (1 - CORE_MARGIN)) / CORE_EXTENT)
+      layout.portrait = window.matchMedia(PORTRAIT_QUERY).matches ? 1 : 0
+
+      if (layout.portrait) {
+        layout.center.copy(CENTER_PORTRAIT)
+      } else {
+        // Landscape keeps the blob beside the headline, but pulled in far enough
+        // that a narrow window clips its tails rather than its core.
+        const maxX = halfWidth - CORE_EXTENT * layout.coreScale
+        layout.center.copy(CENTER_WIDE)
+        layout.center.x = Math.min(CENTER_WIDE.x, Math.max(0, maxX))
+      }
+    }
 
     const dt = Math.min(delta, 1 / 20) * (slow ? 0.25 : 1)
     anim.time += dt
@@ -402,12 +504,17 @@ function Scene() {
     points.uHovered.value = sceneState.hovered
     points.uPointer.value.copy(anim.pointer)
     points.uRepulsion.value = anim.repulsion
+    points.uCoreScale.value = layout.coreScale
+    points.uPortrait.value = layout.portrait
+    points.uCenter.value.copy(layout.center)
 
     const bonds = bondRef.current.uniforms
     bonds.uTime.value = anim.time
     bonds.uAngle.value = anim.angle
     bonds.uMorph.value = anim.morph
     bonds.uOpacity.value = anim.morph
+    bonds.uPortrait.value = layout.portrait
+    bonds.uCenter.value.copy(layout.center)
     bondRef.current.visible = anim.morph > 0.01
 
     // Uniforms are only re-uploaded when a different material was bound in between,
@@ -484,10 +591,15 @@ function useSceneDriver() {
 export default function NeuralCore() {
   useSceneDriver()
 
+  // Bloom's mipmap blur is the most expensive pass here and scales with the
+  // pixel count, so phones render it at 1.5x instead of 2x. gl_PointSize is
+  // already normalised by the pixel ratio, so the dots keep their CSS size.
+  const maxDpr = useMemo(() => (isCoarsePointer() ? 1.5 : 2), [])
+
   return (
     <Canvas
-      camera={{ position: [0, 0, 6], fov: 42 }}
-      dpr={[1, 2]}
+      camera={{ position: [0, 0, CAMERA_Z], fov: FOV }}
+      dpr={[1, maxDpr]}
       gl={{ antialias: false, powerPreference: 'high-performance', alpha: true }}
       onCreated={({ gl }) => gl.setClearColor('#0a0b0e', 0)}
       className="!absolute inset-0"
