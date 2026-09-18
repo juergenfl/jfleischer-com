@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
-import { sceneState } from './sceneState'
+import { POINTER_PUSH, sceneState } from './sceneState'
 
 // A phone in portrait sees barely +-1.06 world units across at this camera, so
 // the authored landscape composition falls almost entirely outside the frustum.
@@ -190,6 +190,11 @@ void main() {
   vCluster = aCluster;
   vSeed = aSeed;
 
+  // How much the composition had to shrink to fit this frame. Everything that
+  // is measured in world units has to be scaled by it, or it keeps its absolute
+  // size while the cloud around it gets smaller.
+  float fit = mix(uCoreScale, 1.0, uMorph);
+
   vec3 pos = mix(position, mix(aNet, aNetPortrait, uPortrait), uMorph);
 
   // Organic drift along a slowly translating curl field — strong in the core
@@ -203,20 +208,23 @@ void main() {
 
   // Shrink the loose core to whatever the frame can actually show; the network
   // node layouts are authored to fit already, so they are left alone.
-  pos *= mix(uCoreScale, 1.0, uMorph);
+  pos *= fit;
 
   pos = place(pos, uAngle, uMorph, uCenter);
 
-  // Cursor repulsion: gaussian falloff in world space
+  // Pointer repulsion: gaussian falloff in world space. Reach and throw both
+  // scale with the fit, because an absolute radius is about as wide as the whole
+  // cloud once a portrait frame has shrunk it — that blows the blob open into a
+  // hollow shell rather than denting it where you touched.
   vec3 toPointer = pos - uPointer;
   float d2 = dot(toPointer, toPointer);
-  pos += normalize(toPointer + 1e-4) * exp(-d2 * 2.5) * uRepulsion;
+  pos += normalize(toPointer + 1e-4) * exp(-d2 * 2.5 / (fit * fit)) * uRepulsion * fit;
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
   // Scaled with the cloud, not just positioned by it: a dot that keeps its size
   // while the cloud shrinks reads as grain instead of dust.
-  gl_PointSize = uSize * mix(uCoreScale, 1.0, uMorph) * (0.7 + 0.6 * aSeed) * (6.0 / max(1.0, -mv.z));
+  gl_PointSize = uSize * fit * (0.7 + 0.6 * aSeed) * (6.0 / max(1.0, -mv.z));
 
   vDepth = -mv.z;
 }
@@ -326,7 +334,6 @@ function Scene() {
   const bondRef = useRef<THREE.ShaderMaterial>(null)
   const { gl, camera } = useThree()
 
-  const coarse = useMemo(isCoarsePointer, [])
   const slow = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, [])
 
   const geometry = useMemo(() => {
@@ -488,14 +495,22 @@ function Scene() {
     // The graph holds still while you read it; the loose core keeps turning
     anim.angle += dt * 0.05 * (1 - anim.morph)
 
-    if (!coarse) {
-      ndc.set(sceneState.pointer[0], sceneState.pointer[1])
-      raycaster.setFromCamera(ndc, camera)
-      if (raycaster.ray.intersectPlane(plane, hit)) {
+    ndc.set(sceneState.pointer[0], sceneState.pointer[1])
+    raycaster.setFromCamera(ndc, camera)
+    if (raycaster.ray.intersectPlane(plane, hit)) {
+      if (sceneState.pointerJump) {
+        // A finger does not travel to where it touches down
+        anim.pointer.copy(hit)
+        sceneState.pointerJump = false
+      } else {
         anim.pointer.lerp(hit, Math.min(1, 8 * delta))
       }
-      anim.repulsion += (0.42 - anim.repulsion) * Math.min(1, 4 * delta)
     }
+
+    // Pushing in is quicker than relaxing back, so releasing a finger reads as
+    // the cloud settling rather than snapping.
+    const push = sceneState.pointerPush
+    anim.repulsion += (push - anim.repulsion) * Math.min(1, (push > anim.repulsion ? 7 : 2.5) * delta)
 
     const points = coreRef.current.uniforms
     points.uTime.value = anim.time
@@ -568,21 +583,47 @@ function useSceneDriver() {
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(readScroll)
     }
-    const onPointerMove = (e: PointerEvent) => {
+    const track = (e: PointerEvent) => {
       sceneState.pointer = [
         (e.clientX / window.innerWidth) * 2 - 1,
         -((e.clientY / window.innerHeight) * 2) + 1,
       ]
     }
 
+    // Branching on pointerType rather than a `pointer: coarse` query, so a
+    // touchscreen laptop — which reports a fine primary pointer — still pushes
+    // the cloud when you use your finger on it.
+    const onPointerMove = (e: PointerEvent) => {
+      track(e)
+      if (e.pointerType === 'mouse') sceneState.pointerPush = POINTER_PUSH
+    }
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      track(e)
+      sceneState.pointerJump = true
+      sceneState.pointerPush = POINTER_PUSH
+    }
+    const onPointerRelease = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      sceneState.pointerPush = 0
+    }
+
     readScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onScroll, { passive: true })
     window.addEventListener('pointermove', onPointerMove, { passive: true })
+    // Listeners stay passive: a finger drag must still scroll the page, so a
+    // vertical swipe pokes the cloud and then pointercancel hands it back.
+    window.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('pointerup', onPointerRelease, { passive: true })
+    window.addEventListener('pointercancel', onPointerRelease, { passive: true })
     return () => {
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onScroll)
       window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerup', onPointerRelease)
+      window.removeEventListener('pointercancel', onPointerRelease)
       if (frame) cancelAnimationFrame(frame)
     }
   }, [])
