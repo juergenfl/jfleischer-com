@@ -116,8 +116,28 @@ if [ "$LIVE_SHA" != "$HEAD_SHA" ]; then
 fi
 say "Coolify:   ${LIVE_SHA:0:8} gebaut und abgeschlossen."
 
-CODE=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$SITE_URL") || CODE=000
-[ "$CODE" = "200" ] || die "$SITE_URL antwortet mit HTTP $CODE."
+# Coolify reports 'finished' when the build is done, which is a moment before
+# Traefik has a healthy container to route to. The gap is short — a handful of
+# seconds — but checking inside it yields a 503 for a deployment that is
+# perfectly fine, so a gateway error is a reason to wait, not to fail.
+
+SETTLE_SECONDS=120
+SETTLE_DEADLINE=$(( $(date +%s) + SETTLE_SECONDS ))
+
+while :; do
+  CODE=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$SITE_URL") || CODE=000
+
+  case "$CODE" in
+    200) break ;;
+    502|503|504|000)
+      [ "$(date +%s)" -lt "$SETTLE_DEADLINE" ] \
+        || die "$SITE_URL antwortet seit ${SETTLE_SECONDS}s mit HTTP $CODE."
+      say "Seite:     noch HTTP $CODE, Container wechselt gerade ..."
+      sleep 5
+      ;;
+    *) die "$SITE_URL antwortet mit HTTP $CODE." ;;
+  esac
+done
 say "Seite:     $SITE_URL antwortet mit 200."
 
 say ""
