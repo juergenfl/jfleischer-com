@@ -24,8 +24,7 @@ export type Achievement = { title: string; cats: FilterId[]; desc: string }
 
 export type CvContent = {
   hero: { kicker: string; name: string; role: string; intro: string; stats: Stat[] }
-  contact: { email: string; phone: string; address: string }
-  nav: { download: string }
+  contact: { email: string }
   quotes: Quote[]
   timelineHeading: string
   timeline: Station[]
@@ -43,10 +42,9 @@ export type CvContent = {
   interests: string[]
   referenceHeading: string
   referenceText: string
-  footer: { heading: string; cta: string; download: string; smallprint: string }
+  footer: { heading: string; cta: string; smallprint: string }
 }
 
-export const CV_PDF = '/cv/Lebenslauf-Fleischer.pdf'
 export const CV_PORTRAIT = '/cv/portrait.jpg'
 
 export const CONTENT: Record<Lang, CvContent> = {
@@ -62,8 +60,7 @@ export const CONTENT: Record<Lang, CvContent> = {
         { value: 'DE / EN', label: 'verhandlungssicher' }
       ]
     },
-    contact: { email: 'info@jfleischer.com', phone: '0157 5629 3323', address: 'Dachsweg 7, 46282 Dorsten' },
-    nav: { download: 'Lebenslauf (PDF)' },
+    contact: { email: 'info@jfleischer.com' },
     quotes: [
       { text: 'Er zeigte überdurchschnittlichen Arbeitseinsatz und engagierte sich für die Belange der Firma auch über die normale Dienstzeit hinaus.', source: 'Arbeitszeugnis, Oracle Global Services Germany GmbH · 31.08.2026' },
       { text: 'Herr Fleischer zeichnete sich durch einen effizienten Arbeitsstil aus. Er hatte einen sicheren Blick für das Wesentliche und arbeitete zuverlässig, selbstständig, methodisch und gründlich.', source: 'Arbeitszeugnis, Oracle Global Services Germany GmbH · 31.08.2026' },
@@ -142,7 +139,7 @@ export const CONTENT: Record<Lang, CvContent> = {
     interests: [ 'IT- & Cloud-Security, Automatisierung', 'Neue KI-Technologien (OpenClaw, Claude, OpenAI)', 'Jugendarbeit', 'Fotografie', 'Fahrradfahren' ],
     referenceHeading: 'Zum Zeugnis',
     referenceText: 'Das Arbeitsverhältnis bei Oracle Global Services Germany GmbH endete am 31. August 2026 einvernehmlich aus betrieblichen Gründen, nach 29 Jahren Betriebszugehörigkeit (inklusive der Zeit bei Sun Microsystems). Oracle bedankt sich im Zeugnis ausdrücklich für die gute Zusammenarbeit.',
-    footer: { heading: 'Kontakt', cta: 'Für Rückfragen und Gespräche stehe ich gern zur Verfügung.', download: 'Lebenslauf (PDF)', smallprint: 'Stand: September 2026' }
+    footer: { heading: 'Kontakt', cta: 'Für Rückfragen und Gespräche stehe ich gern zur Verfügung.', smallprint: 'Stand: September 2026' }
   },
   en: {
     hero: {
@@ -156,8 +153,7 @@ export const CONTENT: Record<Lang, CvContent> = {
         { value: 'DE / EN', label: 'fluent, business-level' }
       ]
     },
-    contact: { email: 'info@jfleischer.com', phone: '0157 5629 3323', address: 'Dachsweg 7, 46282 Dorsten, Germany' },
-    nav: { download: 'Résumé (PDF)' },
+    contact: { email: 'info@jfleischer.com' },
     quotes: [
       { text: `He showed above-average dedication and engaged with the company's interests beyond normal working hours.`, source: 'Reference letter, Oracle Global Services Germany GmbH · Aug 31, 2026' },
       { text: 'Mr. Fleischer distinguished himself through an efficient way of working. He had a sound sense for what mattered and worked reliably, independently, methodically and thoroughly.', source: 'Reference letter, Oracle Global Services Germany GmbH · Aug 31, 2026' },
@@ -229,6 +225,6 @@ export const CONTENT: Record<Lang, CvContent> = {
     interests: [ 'IT & cloud security, automation', 'New AI technologies (OpenClaw, Claude, OpenAI)', 'Youth work', 'Photography', 'Cycling' ],
     referenceHeading: 'About the reference letter',
     referenceText: 'Employment with Oracle Global Services Germany GmbH ended by mutual agreement for operational reasons on August 31, 2026, after 29 years of service (including time at Sun Microsystems). In the reference letter, Oracle explicitly thanks him for the good working relationship.',
-    footer: { heading: 'Contact', cta: 'Happy to answer questions or talk further.', download: 'Résumé (PDF)', smallprint: 'As of September 2026' }
+    footer: { heading: 'Contact', cta: 'Happy to answer questions or talk further.', smallprint: 'As of September 2026' }
   }
 };

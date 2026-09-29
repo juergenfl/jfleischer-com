@@ -3,7 +3,6 @@ import Header from '../components/Header'
 import Footer from '../components/Footer'
 import {
   CONTENT,
-  CV_PDF,
   CV_PORTRAIT,
   type FilterId,
   type Lang,
@@ -55,7 +54,7 @@ const GHOST_BUTTON =
   'border border-border px-4 py-2 font-mono text-xs uppercase tracking-[0.12em] text-fg-muted transition-colors hover:border-accent hover:text-accent'
 
 export default function Lebenslauf() {
-  const [lang, setLang] = useState<Lang>('de')
+  const [lang, setLang] = useState<Lang>('en')
   const [filter, setFilter] = useState<FilterId | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ t1: true })
 
@@ -82,51 +81,40 @@ export default function Lebenslauf() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <Header />
-
-      <main id="main">
-        {/* Sticky under the fixed site header, so language and the PDF stay
-            reachable from anywhere on a long page. */}
-        <div className="sticky top-16 z-30 mt-16 border-y border-border bg-bg/80 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3 sm:px-10">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-fg-dim">
+      {/* The switch rides in the site header, so it stays reachable from
+          anywhere on a long page without a second sticky bar. */}
+      <Header
+        aside={
+          <div className="flex min-w-0 items-center gap-3">
+            <p className="hidden font-mono text-xs uppercase tracking-[0.2em] text-fg-dim sm:block">
               {de ? 'Sprache' : 'Language'}
             </p>
 
-            <div className="flex items-center gap-3">
-              <div
-                role="group"
-                aria-label={de ? 'Sprache wählen' : 'Choose language'}
-                className="flex items-center overflow-hidden rounded border border-border"
-              >
-                {LANGS.map((code) => (
-                  <button
-                    key={code}
-                    type="button"
-                    onClick={() => setLang(code)}
-                    aria-pressed={lang === code}
-                    className={`px-3 py-1.5 font-mono text-xs uppercase tracking-[0.12em] transition-colors ${
-                      lang === code
-                        ? 'bg-accent text-bg'
-                        : 'text-fg-muted hover:text-accent'
-                    }`}
-                  >
-                    {code}
-                  </button>
-                ))}
-              </div>
-
-              <a
-                href={CV_PDF}
-                download="Lebenslauf-Fleischer.pdf"
-                className="rounded border border-border px-3 py-1.5 font-mono text-xs uppercase tracking-[0.12em] text-fg-muted transition-colors hover:border-accent hover:text-accent"
-              >
-                PDF ↓
-              </a>
+            <div
+              role="group"
+              aria-label={de ? 'Sprache wählen' : 'Choose language'}
+              className="flex shrink-0 items-center overflow-hidden rounded border border-border"
+            >
+              {LANGS.map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setLang(code)}
+                  aria-pressed={lang === code}
+                  className={`px-3 py-1.5 font-mono text-xs uppercase tracking-[0.12em] transition-colors ${
+                    lang === code ? 'bg-accent text-bg' : 'text-fg-muted hover:text-accent'
+                  }`}
+                >
+                  {code}
+                </button>
+              ))}
             </div>
           </div>
-        </div>
+        }
+      />
 
+      {/* mt-16 clears the fixed header the sticky bar used to sit under. */}
+      <main id="main" className="mt-16">
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section id="top" className="border-b border-border px-6 pt-20 pb-24 sm:px-10 sm:pt-24">
           <div className="mx-auto grid max-w-7xl grid-cols-1 items-center gap-16 lg:grid-cols-[1.5fr_0.5fr]">
@@ -154,18 +142,10 @@ export default function Lebenslauf() {
                 ))}
               </div>
 
-              <div className="mt-10 flex flex-wrap items-center gap-3">
-                <a href={CV_PDF} download="Lebenslauf-Fleischer.pdf" className={GHOST_BUTTON}>
-                  {t.nav.download} ↓
-                </a>
-              </div>
-
               <div className="mt-10 flex flex-wrap gap-x-8 gap-y-2 font-mono text-xs text-fg-muted">
                 <a href={`mailto:${t.contact.email}`} className="link-sweep hover:text-accent">
                   {t.contact.email}
                 </a>
-                <span>{t.contact.phone}</span>
-                <span>{t.contact.address}</span>
               </div>
             </div>
 
@@ -425,9 +405,6 @@ export default function Lebenslauf() {
             </div>
 
             <div className="mt-16 flex flex-wrap items-center gap-3">
-              <a href={CV_PDF} download="Lebenslauf-Fleischer.pdf" className={GHOST_BUTTON}>
-                {t.footer.download} ↓
-              </a>
               <a href={`mailto:${t.contact.email}`} className={GHOST_BUTTON}>
                 {t.footer.heading} →
               </a>

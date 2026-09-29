@@ -1,9 +1,5 @@
 import Header from '../components/Header'
 import Hero from '../components/Hero'
-import Directory from '../components/Directory'
-import Manifest from '../components/Manifest'
-import LabNotes from '../components/LabNotes'
-import Contact from '../components/Contact'
 import Footer from '../components/Footer'
 import NeuralCore from '../three/NeuralCore'
 
@@ -19,10 +15,12 @@ export default function Home() {
         <Header />
         <main id="main">
           <Hero />
-          <Directory />
-          <Manifest />
-          <LabNotes />
-          <Contact />
+          {/*
+            Nothing to read down here — the screen belongs to the scene. The
+            height is what gives the scroll something to travel through, so the
+            blob has room to collapse into the connected cloud and stay there.
+          */}
+          <section id="scene" aria-hidden="true" className="min-h-dvh" />
         </main>
         <Footer />
       </div>
