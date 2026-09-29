@@ -117,11 +117,21 @@ build is your `HEAD`, and that the site answers 200.
 ```bash
 export COOLIFY_HOST=https://coolify.jfleischer.com
 export COOLIFY_RESOURCE_UUID=<the application's uuid in Coolify>
-export COOLIFY_TOKEN='<Keys & Tokens -> API tokens>'
+export COOLIFY_TOKEN=$(security find-generic-password -a "$USER" -s coolify-jfleischer -w)
 export SITE_URL=https://jfleischer.com
 ```
 
-Do not put the token in your shell profile. From there it lands in the
+The token itself lives in the macOS keychain, not in the file. Put it there once:
+
+```bash
+security add-generic-password -a "$USER" -s coolify-jfleischer -w '<the token>'
+```
+
+That keeps it out of backups and out of any editor that happens to open the
+file. It is no defence against malware running as you — that can call
+`security` too — but it covers the accidents.
+
+Do not put the token in your shell profile either. From there it lands in the
 environment of every process you start, including every `postinstall` hook in
 `node_modules`.
 
