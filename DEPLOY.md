@@ -89,7 +89,61 @@ In Coolify: **New Resource → Docker Image**, enter the image, port `80`, domai
 
 Bump the tag on every build. Reusing `:latest` invites Coolify to keep running the cached image, and you will spend twenty minutes debugging a deployment that "succeeded" with the old bundle.
 
-## A7. Verify
+## A7. Deploying with `scripts/deploy.sh`
+
+Clicking Deploy in the Coolify UI works, but proves nothing: `curl
+https://jfleischer.com` answers 200 even while the old container is still
+serving. Vite's asset hashes are no proof either — the server builds in
+`node:22-alpine` and produces different fingerprints than a local `npm run
+build` of byte-identical source.
+
+What does hold up is Coolify's own record: it stores the git SHA behind every
+build. `scripts/deploy.sh` uses exactly that.
+
+```bash
+./scripts/deploy.sh            # trigger, wait, verify
+./scripts/deploy.sh --check    # verify only; changes nothing
+```
+
+The script refuses to run on a dirty tree, or on a commit that is not yet on
+`origin/main` — Coolify clones from GitHub and could not see it. It then polls
+until `status: finished` and checks two things: that Coolify's newest finished
+build is your `HEAD`, and that the site answers 200.
+
+### Credentials
+
+`.env.deploy` in the project root, `chmod 600`, listed in `.gitignore`:
+
+```bash
+export COOLIFY_HOST=https://coolify.jfleischer.com
+export COOLIFY_RESOURCE_UUID=<the application's uuid in Coolify>
+export COOLIFY_TOKEN='<Keys & Tokens -> API tokens>'
+export SITE_URL=https://jfleischer.com
+```
+
+Do not put the token in your shell profile. From there it lands in the
+environment of every process you start, including every `postinstall` hook in
+`node_modules`.
+
+### When the API answers 403
+
+Two different messages, two different causes:
+
+- `API is disabled.` — *Settings → Configuration → Advanced → API Settings*,
+  switch `API Access` on.
+- `You are not allowed to access the API.` — the IP allowlist in that same
+  panel is rejecting you. **Note:** behind the Traefik proxy, Coolify does not
+  see your external IP but the proxy's internal address. An allowlist holding
+  your own IP therefore blocks `https://coolify.jfleischer.com` while the
+  direct route on port 8000 still passes. An empty field disables the check (an
+  empty string is falsy in PHP), as does `0.0.0.0`. Entries are split on commas
+  only — a newline is not a separator.
+
+`401 Unauthenticated` means something else entirely: the token itself is not valid.
+
+---
+
+## A8. Verify
 
 ```bash
 curl -sI https://jfleischer.com | head -20
