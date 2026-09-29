@@ -6,3 +6,4 @@ dist-ssr
 .gstack/
 *.tsbuildinfo
 .claude/settings.local.json
+.env.deploy
